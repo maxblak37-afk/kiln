@@ -1,0 +1,17 @@
+# Окружение и кэш
+.venv/
+__pycache__/
+*.pyc
+
+# Служебные бэкапы pc-control
+.pc_control_backups/
+
+# Результаты обучения и веса (большие, не в git)
+runs/
+output_model/
+*.safetensors
+*.bin
+*.gguf
+
+# Данные пользователя (если приватные)
+data/*.jsonl

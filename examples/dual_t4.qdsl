@@ -1,0 +1,31 @@
+target: "2x-t4"
+
+parallel {
+    strategy: ddp
+    gpus: 2
+}
+
+model "Qwen/Qwen2.5-Coder-7B" {
+    precision: 4bit             # 4-бит загрузка; на T4 обучение идёт в fp16
+    context: 1024
+}
+
+dataset "dataset.jsonl" {
+    format: chatml
+    train_on: responses_only
+}
+
+adapter lora {
+    r: 16
+    alpha: 32
+}
+
+train {
+    epochs: 3
+    lr: 2e-4
+    batch: 2
+    accum: 4
+    output: "./output_model"
+    checkpoint: 100
+    resume: auto
+}

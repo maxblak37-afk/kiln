@@ -1,0 +1,22 @@
+target: "rtx-3060-laptop"
+
+model "Qwen/Qwen2.5-Coder-7B" {
+    precision: 4bit
+    context: 1024
+}
+
+dataset "dataset.jsonl" {
+    format: chatml
+    train_on: responses_only
+}
+
+adapter lora {
+    r: 16
+    alpha: 32
+}
+
+train {
+    epochs: 3
+    lr: 2e-4
+    output: "./output_model"
+}
