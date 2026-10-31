@@ -10,15 +10,27 @@ HARDWARE = {
         "batch": 1,
         "accum": 8,
         "grad_ckpt": True,
+        "backend": "hf",        # Windows нативно: transformers + peft + trl + bitsandbytes
     },
     "2x-t4": {
         "gpus": 2,
         "vram_gb": 16,
         "arch": "turing",
-        "bf16": False,  # T4 не поддерживает bf16
+        "bf16": False,          # T4 не поддерживает bf16
         "batch": 2,
         "accum": 4,
         "grad_ckpt": True,
+        "backend": "unsloth",   # Linux / Kaggle / Colab
+    },
+    "1x-t4": {
+        "gpus": 1,
+        "vram_gb": 16,
+        "arch": "turing",
+        "bf16": False,
+        "batch": 2,
+        "accum": 4,
+        "grad_ckpt": True,
+        "backend": "unsloth",
     },
 }
 

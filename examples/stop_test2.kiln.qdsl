@@ -1,0 +1,26 @@
+# Тест безопасной остановки: 90 шагов, чтобы успеть создать флажок STOP
+target: "rtx-3060-laptop"
+
+model "F:\models\Qwen2.5-0.5B-Instruct" {
+    precision: 4bit
+    context: 512
+}
+
+dataset "data/smoke.jsonl" {
+    format: chatml
+}
+
+adapter lora {
+    r: 8
+    alpha: 16
+}
+
+train {
+    epochs: 30
+    lr: 2e-4
+    batch: 1
+    accum: 1
+    output: "runs/stop_test2"
+    checkpoint: 1
+    resume: auto
+}

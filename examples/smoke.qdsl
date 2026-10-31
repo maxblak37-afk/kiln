@@ -1,0 +1,26 @@
+# Smoke-тест: маленькая модель с диска, 3 примера, Windows (бэкенд hf)
+target: "rtx-3060-laptop"
+
+model "F:\models\Qwen2.5-0.5B-Instruct" {
+    precision: 4bit
+    context: 512
+}
+
+dataset "data/smoke.jsonl" {
+    format: chatml
+}
+
+adapter lora {
+    r: 8
+    alpha: 16
+}
+
+train {
+    epochs: 3
+    lr: 2e-4
+    batch: 1
+    accum: 4
+    output: "runs/smoke"
+    checkpoint: 5
+    resume: auto
+}

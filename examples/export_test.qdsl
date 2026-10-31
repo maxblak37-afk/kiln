@@ -1,0 +1,25 @@
+target: "rtx-3060-laptop"
+
+model "F:\models\Qwen2.5-0.5B-Instruct" {
+    precision: 4bit
+    context: 512
+}
+
+dataset "data/smoke.jsonl" {
+    format: chatml
+}
+
+adapter lora {
+    r: 8
+}
+
+train {
+    epochs: 1
+    lr: 2e-4
+    output: "runs/export_test"
+}
+
+export {
+    format: gguf
+    quantization: q4_k_m
+}

@@ -1,0 +1,18 @@
+# Шаблон: помощник по коду.
+# Пресет quality: больше эпох и контекст 2048 для более аккуратного результата.
+# Для 7B-модели на 6 ГБ такой контекст уже не влезет: plan покажет предупреждение.
+target: "rtx-3060-laptop"
+preset: quality
+
+model "F:\models\Qwen2.5-0.5B-Instruct" {
+    precision: 4bit
+}
+
+dataset "data/code_pairs.jsonl" {
+    format: chatml
+    train_on: all
+}
+
+train {
+    output: "runs/code_helper"
+}

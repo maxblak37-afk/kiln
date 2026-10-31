@@ -1,0 +1,26 @@
+# Тест безопасной остановки: отдельная папка, чекпоинт после каждого шага
+target: "rtx-3060-laptop"
+
+model "F:\models\Qwen2.5-0.5B-Instruct" {
+    precision: 4bit
+    context: 512
+}
+
+dataset "data/smoke.jsonl" {
+    format: chatml
+}
+
+adapter lora {
+    r: 8
+    alpha: 16
+}
+
+train {
+    epochs: 3
+    lr: 2e-4
+    batch: 1
+    accum: 1
+    output: "runs/stop_test"
+    checkpoint: 1
+    resume: auto
+}

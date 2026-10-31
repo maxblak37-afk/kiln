@@ -1,0 +1,18 @@
+# Шаблон: чат-бот на своих диалогах.
+# Пресет balanced: разумный компромисс между временем и качеством.
+# Замените путь к модели на свой и положите диалоги в data/chat.jsonl в формате chatml.
+target: "rtx-3060-laptop"
+preset: balanced
+
+model "F:\models\Qwen2.5-0.5B-Instruct" {
+    precision: 4bit
+}
+
+dataset "data/chat.jsonl" {
+    format: chatml
+    train_on: all
+}
+
+train {
+    output: "runs/chat_bot"
+}

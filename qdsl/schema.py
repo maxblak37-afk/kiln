@@ -1,4 +1,4 @@
-"""Схема QDSL: ключи, типы, диапазоны, значения по умолчанию и семантические проверки."""
+"""Схема Kiln: ключи, типы, диапазоны, пресеты, валидация, значения по умолчанию и семантические проверки."""
 import difflib
 
 from .parser import Block
@@ -6,7 +6,18 @@ from .presets import params_b, vram_need
 
 REQUIRED = "__required__"
 
-ROOT_KEYS = {"target": ("str", None, REQUIRED)}
+# Пресеты задают набор параметров целиком. Явно указанное в файле всегда важнее пресета.
+PRESETS = {
+    "quick":    {"epochs": 1, "lr": 2e-4, "r": 8,  "context": 512,  "checkpoint": 50},
+    "balanced": {"epochs": 3, "lr": 2e-4, "r": 16, "context": 1024, "checkpoint": 100},
+    "quality":  {"epochs": 5, "lr": 1e-4, "r": 32, "context": 2048, "checkpoint": 200},
+}
+
+ROOT_KEYS = {
+    "target": ("str", None, REQUIRED),
+    "backend": ("enum", ["hf", "unsloth"], None),          # по умолчанию берётся из профиля
+    "preset": ("enum", list(PRESETS), None),               # quick | balanced | quality
+}
 
 SECTIONS = {
     "parallel": {
@@ -19,7 +30,7 @@ SECTIONS = {
     },
     "dataset": {
         "format": ("enum", ["chatml", "alpaca"], "chatml"),
-        "train_on": ("enum", ["all", "responses_only"], "responses_only"),
+        "train_on": ("enum", ["all", "responses_only"], None),  # None -> зависит от backend
     },
     "adapter": {
         "r": ("int", (1, 512), 16),
@@ -34,9 +45,18 @@ SECTIONS = {
         "checkpoint": ("int", (1, 10_000_000), 100),
         "resume": ("enum", ["auto", "off"], "auto"),
     },
+    # Валидация: проверка качества на отдельных примерах. Нужна, чтобы ловить переобучение.
+    "eval": {
+        "every": ("int", (1, 10_000_000), 50),      # проверять каждые N шагов
+        "patience": ("int", (1, 100), 3),           # остановить после N проверок без улучшения
+    },
+    "export": {
+        "format": ("enum", ["gguf", "merged_16bit", "merged_4bit"], "gguf"),
+        "quantization": ("enum", ["q4_k_m", "q8_0", "f16", "q5_k_m"], "q4_k_m"),
+    },
 }
 
-BLOCK_ARGS = {"model": 1, "dataset": 1, "adapter": 1, "train": 0, "parallel": 0}
+BLOCK_ARGS = {"model": 1, "dataset": 1, "adapter": 1, "train": 0, "parallel": 0, "eval": 1, "export": 0}
 
 
 def _check(kind, rng, key, val, line, errs):
@@ -80,7 +100,7 @@ def _check_args(b: Block, errs):
     if len(b.args) != want:
         errs.append((b.line, f"блок '{b.name}' ожидает аргументов: {want}, получено: {len(b.args)}"))
         return
-    if b.name in ("model", "dataset") and not isinstance(b.args[0], str):
+    if b.name in ("model", "dataset", "eval") and not isinstance(b.args[0], str):
         errs.append((b.line, f"блок '{b.name}': аргумент должен быть строкой"))
     if b.name == "adapter" and b.args[0] != "lora":
         errs.append((b.line, "adapter поддерживает только 'lora'"))
@@ -93,7 +113,7 @@ def validate(root: Block, profiles: dict):
     top = {}
     for key, v in root.entries.items():
         if key in ROOT_KEYS:
-            top[key] = v.val
+            top[key] = v
         else:
             errs.append((v.line, f"неизвестный ключ верхнего уровня '{key}'"))
 
@@ -113,11 +133,28 @@ def validate(root: Block, profiles: dict):
     if "target" not in top:
         errs.append((1, "отсутствует обязательный ключ 'target'"))
 
-    target = top.get("target")
+    target = top["target"].val if "target" in top else None
     profile = profiles.get(target) if isinstance(target, str) else None
     if "target" in top and profile is None:
-        errs.append((root.entries["target"].line,
+        errs.append((top["target"].line,
                      f"неизвестный target '{target}'; доступны: {', '.join(profiles)}"))
+
+    backend = profile["backend"] if profile else None
+    if "backend" in top:
+        raw = top["backend"].val
+        if _check("enum", ROOT_KEYS["backend"][1], "backend", raw, top["backend"].line, errs):
+            backend = raw
+
+    preset_name = None
+    if "preset" in top:
+        raw = top["preset"].val
+        if _check("enum", ROOT_KEYS["preset"][1], "preset", raw, top["preset"].line, errs):
+            preset_name = raw
+    pv = PRESETS.get(preset_name, {})
+
+    def dflt(key, schema_default):
+        """Значение из пресета, если он задан, иначе значение по умолчанию схемы."""
+        return pv.get(key, schema_default)
 
     fields, missing_required = {}, False
     for name, b in blocks.items():
@@ -142,6 +179,7 @@ def validate(root: Block, profiles: dict):
 
     mdl, tr, par, ad, ds = (fields.get("model", {}), fields["train"], fields.get("parallel", {}),
                             fields.get("adapter", {}), fields["dataset"])
+    ev = fields.get("eval")
 
     prec = mdl.get("precision", "4bit")
     if prec == "bf16" and not profile["bf16"]:
@@ -158,10 +196,18 @@ def validate(root: Block, profiles: dict):
     if strategy == "ddp" and gpus == 1:
         warns.append((line("parallel", "strategy"), "ddp на одной карте работает как single"))
 
+    train_on = ds.get("train_on")
+    if train_on is None:
+        train_on = "responses_only" if backend == "unsloth" else "all"
+    elif train_on == "responses_only" and backend == "hf":
+        warns.append((line("dataset", "train_on"),
+                      "responses_only на бэкенде hf пока не поддерживается, обучение идёт по всему тексту"))
+        train_on = "all"
+
     batch = tr.get("batch", profile["batch"])
     accum = tr.get("accum", profile["accum"])
-    r = ad.get("r", 16)
-    ctx = mdl.get("context", 1024)
+    r = ad.get("r", dflt("r", 16))
+    ctx = mdl.get("context", dflt("context", 1024))
 
     params = params_b(blocks["model"].args[0])
     if params is None:
@@ -180,19 +226,53 @@ def validate(root: Block, profiles: dict):
         warns.append((line("model", "context"),
                       f"context {ctx} на {profile['vram_gb']} ГБ может не влезть"))
 
+    epochs = tr.get("epochs", dflt("epochs", 1))
+    checkpoint = tr.get("checkpoint", dflt("checkpoint", 100))
+
+    eval_cfg = None
+    if "eval" in blocks:
+        eval_cfg = {
+            "path": blocks["eval"].args[0],
+            "every": ev.get("every", 50),
+            "patience": ev.get("patience", 3),
+        }
+        # Чекпоинт и проверка должны совпадать по шагам, иначе лучший чекпоинт не выбрать
+        checkpoint = eval_cfg["every"]
+        if eval_cfg["every"] > 0 and not warns:
+            pass
+
+    export_cfg = None
+    if "export" in blocks:
+        ex = fields.get("export", {})
+        fmt = ex.get("format", "gguf")
+        quant = ex.get("quantization", "q4_k_m")
+        if fmt == "gguf" and backend == "hf":
+            warns.append((line("export", "format"),
+                          "экспорт в gguf нативно поддерживается в unsloth; на hf бэкенде будет выполнено слияние в 16bit"))
+        export_cfg = {
+            "format": fmt,
+            "quantization": quant,
+        }
+
     cfg = {
         "target": target,
+        "backend": backend,
+        "preset": preset_name,
         "profile": profile,
         "gpus": gpus,
         "strategy": strategy,
         "model": {"name": blocks["model"].args[0], "precision": prec, "context": ctx},
         "data": {"path": blocks["dataset"].args[0],
                  "format": ds.get("format", "chatml"),
-                 "train_on": ds.get("train_on", "responses_only")},
+                 "train_on": train_on},
+        "eval": eval_cfg,
         "lora": {"r": r, "alpha": ad.get("alpha", 2 * r)},
-        "train": {"epochs": tr.get("epochs", 1), "lr": tr.get("lr", 2e-4),
+        "train": {"epochs": epochs,
+                  "lr": tr.get("lr", dflt("lr", 2e-4)),
                   "batch": batch, "accum": accum, "output": tr["output"],
-                  "checkpoint": tr.get("checkpoint", 100), "resume": tr.get("resume", "auto")},
+                  "checkpoint": checkpoint,
+                  "resume": tr.get("resume", "auto")},
+        "export": export_cfg,
         "effective_batch": batch * accum * gpus,
     }
     return cfg, sorted(errs), sorted(warns)

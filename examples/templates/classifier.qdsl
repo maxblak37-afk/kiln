@@ -1,0 +1,17 @@
+# Шаблон: классификатор текста (например, тональность или тематика).
+# Пресет quick: задача простая, быстрая проба. Формат alpaca: instruction / input / output.
+target: "rtx-3060-laptop"
+preset: quick
+
+model "F:\models\Qwen2.5-0.5B-Instruct" {
+    precision: 4bit
+}
+
+dataset "data/classify.jsonl" {
+    format: alpaca
+    train_on: all
+}
+
+train {
+    output: "runs/classifier"
+}

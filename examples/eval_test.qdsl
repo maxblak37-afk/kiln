@@ -1,0 +1,21 @@
+# Проверка валидации: обучение + проверка на отдельных примерах + ранняя остановка
+target: "rtx-3060-laptop"
+preset: quick
+
+model "F:\models\Qwen2.5-0.5B-Instruct" {
+    precision: 4bit
+}
+
+dataset "data/smoke.jsonl" {
+    format: chatml
+}
+
+eval "data/val.jsonl" {
+    every: 2         # проверять каждые 2 шага
+    patience: 2      # остановить после 2 проверок без улучшения
+}
+
+train {
+    epochs: 10
+    output: "runs/eval_test"
+}
